@@ -3,6 +3,7 @@ package dissect
 import (
 	"bytes"
 	"encoding/binary"
+	"math"
 	"strconv"
 	"strings"
 
@@ -329,6 +330,32 @@ func readDefuserTimerY10S4(r *Reader, patternStart int, timer string) error {
 		r.stopDefuserRun()
 	}
 	return nil
+}
+
+// completePlantOnClockJump completes a running plant when the round timer leaves the action
+// countdown. It runs before the clock is updated with the new timer value t.
+//
+// A finished plant does not always send a 0.00 defuser timer (Y11S3): the last packet can be one
+// tick before zero, or the attempt can end with an idle state, and the next packets belong to the
+// next attempt. The round timer is the reliable signal: when the defuser is planted it switches to
+// the defuser countdown, which is a jump up (planted with less time left than the countdown) or
+// down (planted with more), never the one-second tick of a running countdown. An interrupted
+// plant leaves the action countdown running.
+func (r *Reader) completePlantOnClockJump(t float64) {
+	if r.Header.CodeVersion < Y10S4 {
+		return
+	}
+	run := &r.defuserRun
+	c := &r.clock
+	if !run.active || !run.plant || !c.started || c.phase != ActionPhase || c.awaitCountdown {
+		return
+	}
+	// the round-end reset to 0 is not a countdown change (see updateClock)
+	if t == 0 || math.Abs(t-c.tick) <= 1 {
+		return
+	}
+	log.Debug().Float64("from", c.tick).Float64("to", t).Msg("plant completed by round timer jump")
+	r.completeDefuserRun()
 }
 
 func (r *Reader) startDefuserRun(playerIndex int, state int) {

@@ -182,6 +182,7 @@ func readTime(r *Reader) error {
 	if err != nil {
 		return err
 	}
+	r.completePlantOnClockJump(float64(time))
 	r.updateClock(float64(time))
 	r.timeRaw = fmt.Sprintf("%d:%02d", time/60, time%60)
 	r.noteTick()
